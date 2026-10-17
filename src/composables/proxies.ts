@@ -37,7 +37,10 @@ const getRenderGroups = () => {
     return currentGroups.filter((name) => !isPolicyGroup(name))
   }
 
-  if (proxiesTabShow.value === PROXY_TAB_TYPE.DOMAIN) {
+  if (
+    proxiesTabShow.value === PROXY_TAB_TYPE.DOMAIN ||
+    proxiesTabShow.value === PROXY_TAB_TYPE.MATRIX
+  ) {
     return []
   }
 
@@ -56,10 +59,6 @@ const getCurrentProxyGroups = () => {
   }
 
   return filterGroups([...proxyGroupList.value, GLOBAL])
-}
-
-const getCurrentGroupSet = () => {
-  return new Set(getCurrentProxyGroups())
 }
 
 const getChildGroupNames = (name: string, currentGroupSet: Set<string>) => {

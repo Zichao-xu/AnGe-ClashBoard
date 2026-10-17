@@ -8,7 +8,12 @@ devboard_url="http://127.0.0.1:${devboard_port}"
 pid_file="$project_dir/.devboard-server.pid"
 
 cd "$project_dir"
-corepack pnpm run build
+# Newer Homebrew node no longer ships corepack; use a global pnpm then.
+if command -v corepack >/dev/null 2>&1; then
+  corepack pnpm run build
+else
+  pnpm run build
+fi
 
 entry_asset=$(sed -n 's/.*src="\.\/\(assets\/[^\"]*\.js\)".*/\1/p' dist/index.html)
 

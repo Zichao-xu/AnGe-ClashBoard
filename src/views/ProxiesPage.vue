@@ -12,7 +12,13 @@
       :style="padding"
       @scroll.passive="handleScroll"
     >
-      <template v-if="displayTwoColumns">
+      <div
+        v-if="proxiesTabShow === PROXY_TAB_TYPE.MATRIX"
+        class="app-page-padding"
+      >
+        <ProxyMatrixView />
+      </div>
+      <template v-else-if="displayTwoColumns">
         <div class="app-page-gap app-page-padding grid grid-cols-2">
           <div
             v-for="idx in [0, 1]"
@@ -72,6 +78,7 @@ import ProxyGroup from '@/components/proxies/ProxyGroup.vue'
 import ProxyGroupForMobile from '@/components/proxies/ProxyGroupForMobile.vue'
 import ProxyGroupRulePenetrationDialog from '@/components/proxies/ProxyGroupRulePenetrationDialog.vue'
 import ProxyGroupUnit from '@/components/proxies/ProxyGroupUnit.vue'
+import ProxyMatrixView from '@/components/proxies/ProxyMatrixView.vue'
 import ProxyProvider from '@/components/proxies/ProxyProvider.vue'
 import ProxiesCtrl from '@/components/sidebar/ProxiesCtrl.tsx'
 import { usePaddingForViews } from '@/composables/paddingViews'
@@ -105,6 +112,7 @@ const documentVisible = useDocumentVisibility()
 const autoRefreshTimer = ref<number>()
 const scrollStatus = useSessionStorage('cache/proxies-scroll-status', {
   [PROXY_TAB_TYPE.POLICY]: 0,
+  [PROXY_TAB_TYPE.MATRIX]: 0,
   [PROXY_TAB_TYPE.DOMAIN]: 0,
   [PROXY_TAB_TYPE.NODE]: 0,
   [PROXY_TAB_TYPE.PROVIDER]: 0,
