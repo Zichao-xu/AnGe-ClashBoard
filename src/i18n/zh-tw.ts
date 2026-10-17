@@ -63,7 +63,6 @@ const zhTW: LANG_MESSAGE = {
   defaultTheme: '預設主題',
   darkTheme: '深色主題',
   policyGroup: '策略',
-  matrixGroup: '矩陣',
   matrixAuto: '速率',
   matrixManual: '手動',
   matrixPickNode: '選擇節點',

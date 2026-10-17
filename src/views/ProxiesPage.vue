@@ -13,7 +13,7 @@
       @scroll.passive="handleScroll"
     >
       <div
-        v-if="proxiesTabShow === PROXY_TAB_TYPE.MATRIX"
+        v-if="proxiesTabShow === PROXY_TAB_TYPE.POLICY"
         class="app-page-padding"
       >
         <ProxyMatrixView />
@@ -112,7 +112,6 @@ const documentVisible = useDocumentVisibility()
 const autoRefreshTimer = ref<number>()
 const scrollStatus = useSessionStorage('cache/proxies-scroll-status', {
   [PROXY_TAB_TYPE.POLICY]: 0,
-  [PROXY_TAB_TYPE.MATRIX]: 0,
   [PROXY_TAB_TYPE.DOMAIN]: 0,
   [PROXY_TAB_TYPE.NODE]: 0,
   [PROXY_TAB_TYPE.PROVIDER]: 0,

@@ -63,7 +63,6 @@ const ru: LANG_MESSAGE = {
   defaultTheme: 'Тема по умолчанию',
   darkTheme: 'Темная тема',
   policyGroup: 'Группа стратегий',
-  matrixGroup: 'Матрица',
   matrixAuto: 'Авто',
   matrixManual: 'Ручн.',
   matrixPickNode: 'Выберите узел',

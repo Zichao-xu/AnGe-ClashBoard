@@ -19,11 +19,33 @@
           :key="row.name"
           data-matrix-card
           :class="[
-            'border-base-content/10 relative flex flex-col gap-3 border-b px-1 py-3.5',
+            'border-base-content/10 relative isolate flex flex-col gap-3 overflow-hidden border-b px-1 py-3.5',
             !row.isDirect && 'cursor-pointer',
           ]"
           @click="toggleExpand(row)"
         >
+          <!-- the service's logo as a faint backdrop in the card's open middle. Its
+               drawn shape (not the image box, whose padding varies) is sized and
+               centred the same way on every card -->
+          <div
+            v-if="proxyMap[row.name]?.icon"
+            class="pointer-events-none absolute inset-0 -z-10 opacity-25"
+            aria-hidden="true"
+          >
+            <img
+              class="absolute max-w-none"
+              :src="backdropSrc(proxyMap[row.name].icon)"
+              :style="backdropStyle(proxyMap[row.name].icon)"
+              alt=""
+            />
+          </div>
+          <!-- frosted glass over the lower part of the backdrop, always there: its top
+               edge fades out upwards, and an open drawer simply extends it -->
+          <div
+            class="bg-base-100/40 pointer-events-none absolute inset-x-0 bottom-0 -z-[5] [mask-image:linear-gradient(to_bottom,transparent,black_48px)] backdrop-blur-md"
+            :style="{ top: `${frostTop}px` }"
+            aria-hidden="true"
+          />
           <!-- latency of the route pinned to the card corner; a click re-tests the
                group as on the policy cards -->
           <LatencyTag
@@ -34,97 +56,88 @@
             :group-name="row.name"
             @click.stop="handlerLatencyTest(row.name)"
           />
-          <div class="flex items-center gap-3">
-            <!-- direct / reject are not exits to browse but a verdict on the whole
-                 service, so they live on its logo: a blurred cover with one mark whose
-                 halves are direct and reject. A tap on the logo opens it, a second tap
-                 on a half picks; an active verdict only shows until opened -->
-            <div
-              :class="[
-                'group/logo relative flex h-14 w-14 shrink-0 items-center justify-center max-md:h-12 max-md:w-12',
-                (row.terminals.direct || row.terminals.reject) && 'cursor-pointer',
-              ]"
-              :title="row.name"
-              @click.stop="toggleLogo(row)"
-            >
-              <ProxyIcon
-                v-if="proxyMap[row.name]?.icon"
-                :icon="proxyMap[row.name].icon"
-                :size="logoSize"
-                :margin="0"
-              />
+          <div class="relative flex flex-col gap-2.5">
+            <!-- identity: the group's name, the logo now lies behind the card -->
+            <div class="flex h-7 items-center">
               <span
-                v-else
-                class="truncate text-xs font-medium"
+                class="text-base-content min-w-0 flex-1 truncate pr-12 text-xl leading-none font-semibold max-md:text-lg"
                 >{{ row.name }}</span
               >
-              <div
-                v-if="row.terminals.direct || row.terminals.reject"
-                :class="[
-                  'bg-base-100/40 absolute -inset-1 flex items-center justify-center rounded-lg backdrop-blur-[3px] transition-opacity duration-150',
-                  row.verdict || openLogo === row.name
-                    ? 'opacity-100'
-                    : 'pointer-events-none opacity-0',
-                ]"
-              >
-                <VerdictGlyph
-                  class="aspect-square w-full"
-                  :active="row.verdict"
-                  :available="row.terminals"
-                  :interactive="openLogo === row.name"
-                  @pick="(kind) => handlerVerdict(row, kind)"
-                />
+            </div>
+            <!-- routing, flush with the card's left edge: the chosen exit beside the
+                 node actually in use and the groups it was reached through, the other
+                 exits under it; on the right the direct / reject mark above the node's
+                 live traffic. Every line always renders so the card never changes height -->
+            <div class="flex gap-3">
+              <div class="flex min-w-0 flex-1 flex-col gap-2.5">
+                <div
+                  class="flex min-w-0 items-center gap-2"
+                  :style="{ height: `${slotSizes[0]}px` }"
+                >
+                  <div
+                    class="shrink-0"
+                    :style="{ width: `${slotSizes[0]}px`, height: `${slotSizes[0]}px` }"
+                  />
+                  <div class="flex min-w-0 flex-col gap-0.5 leading-tight">
+                    <span
+                      class="text-base-content truncate text-base font-medium max-md:text-[15px]"
+                      >{{ row.leaf }}</span
+                    >
+                    <span class="text-base-content/40 h-4 truncate text-xs">{{
+                      row.via.join(' › ')
+                    }}</span>
+                  </div>
+                </div>
+                <!-- room for the row of other exits -->
+                <div :style="{ height: `${slotSizes[1]}px` }" />
+              </div>
+              <div class="flex shrink-0 flex-col items-end justify-between">
+                <!-- direct / reject are not exits to browse but a verdict on the whole
+                     service: one mark whose halves are direct and reject, always in
+                     colour; a tap on a half picks it, a tap on the lit half goes back -->
+                <div class="flex h-[54px] w-[54px] justify-center max-md:h-[42px] max-md:w-[42px]">
+                  <VerdictGlyph
+                    v-if="row.terminals.direct || row.terminals.reject"
+                    class="h-full w-full"
+                    :active="row.verdict"
+                    :available="row.terminals"
+                    interactive
+                    @pick="(kind) => handlerVerdict(row, kind)"
+                  />
+                </div>
+                <!-- live traffic of the node, on the exits' baseline: upload faint and
+                     small above, download stronger and larger below. Every reading has
+                     the same shape (four characters and a k / M / G unit), so arrows,
+                     digits and units hold their places as it moves -->
+                <div
+                  class="grid shrink-0 grid-cols-[auto_auto_auto] items-baseline gap-x-1.5 font-mono leading-tight tabular-nums"
+                >
+                  <template
+                    v-for="line in trafficLines(row.leaf)"
+                    :key="line.arrow"
+                  >
+                    <span :class="line.class">{{ line.arrow }}</span>
+                    <span :class="[line.class, 'justify-self-end whitespace-pre']">{{
+                      line.value
+                    }}</span>
+                    <span :class="line.class">{{ line.unit }}</span>
+                  </template>
+                </div>
               </div>
             </div>
-            <!-- the group's name as the card title, then the node actually in use and
-                 the groups it was reached through;
-                 both lines always render so the card height never changes -->
-            <div class="flex min-w-0 flex-1 flex-col gap-1 leading-tight">
-              <span class="text-base-content truncate pr-12 text-xl font-semibold max-md:text-lg">{{
-                row.name
-              }}</span>
-              <span class="text-base-content truncate text-base font-medium max-md:text-[15px]">{{
-                row.leaf
-              }}</span>
-              <span class="text-base-content/40 h-4 truncate text-xs">{{
-                row.via.join(' › ')
-              }}</span>
-            </div>
-            <!-- upload faint and small above, download stronger and larger below.
-                 Every reading has the same shape, four characters and a k / M / G
-                 unit, so arrows, digits and units hold their places as it moves -->
-            <div
-              class="grid shrink-0 grid-cols-[auto_auto_auto] items-baseline gap-x-1.5 self-end font-mono leading-tight tabular-nums"
-            >
-              <template
-                v-for="line in trafficLines(row.leaf)"
-                :key="line.arrow"
-              >
-                <span :class="line.class">{{ line.arrow }}</span>
-                <span :class="[line.class, 'justify-self-end whitespace-pre']">{{
-                  line.value
-                }}</span>
-                <span :class="line.class">{{ line.unit }}</span>
-              </template>
-            </div>
-          </div>
-          <!-- one row of exits lined up under the text, the chosen one always first
-               and grown; the others keep the global exit order behind it. Switching
-               slides the new choice to the front. -->
-          <TransitionGroup
-            tag="div"
-            name="exit"
-            class="flex items-end gap-2 pl-17 max-md:gap-1.5 max-md:pl-15"
-          >
+            <!-- the exits: the chosen one leading the routing block, the largest; the
+                 rest in a row under the text, stepping down in size on one baseline.
+                 All are placed by position, so a new choice glides up from the row
+                 into its slot while the others close up behind it. -->
             <button
               v-for="column in exitOrder(row)"
               :key="column"
               type="button"
               :class="[
-                'group/cell relative flex shrink-0 cursor-pointer items-center justify-center rounded-full transition-[width,height,box-shadow] duration-300',
+                'group/cell absolute flex cursor-pointer items-center justify-center rounded-full transition-[left,top,width,height,box-shadow] duration-300 ease-out',
                 row.now === column && 'ring-primary ring-offset-base-100 ring-2 ring-offset-2',
               ]"
-              :style="{ width: `${slotOf(row, column)}px`, height: `${slotOf(row, column)}px` }"
+              :style="exitStyle(row, column)"
               :aria-label="`${row.name} → ${column}`"
               :aria-pressed="row.now === column"
               :aria-expanded="row.now === column ? expandedRow === row.name : undefined"
@@ -136,7 +149,7 @@
                   'absolute flex items-center justify-center transition-[opacity,filter,scale] duration-300',
                   row.now === column
                     ? 'opacity-100'
-                    : 'opacity-(--fade) brightness-75 contrast-75 grayscale group-hover/cell:opacity-80 group-hover/cell:brightness-100',
+                    : 'brightness-(--fade) group-hover/cell:brightness-100',
                 ]"
                 :style="{
                   '--fade': fadeOf(row, column),
@@ -174,7 +187,7 @@
                 </span>
               </span>
             </button>
-          </TransitionGroup>
+          </div>
           <!-- drill-down, opened by tapping the chosen exit again: it sits inside the
                card and pushes the cards below down, its notch under the chosen exit,
                which always leads the row. Mode on the left, the exit's nodes on the right. -->
@@ -191,76 +204,120 @@
               class="-mt-3 overflow-hidden"
             >
               <div
-                class="border-base-content/15 relative mt-4 flex gap-3 rounded-lg border p-3"
+                class="border-base-content/15 relative mt-4 flex flex-col gap-2.5 rounded-lg border p-3"
                 @click.stop
               >
                 <span
-                  class="bg-base-100 border-base-content/15 absolute -top-1.5 left-[90px] h-3 w-3 -translate-x-1/2 rotate-45 border-t border-l max-md:left-[80px]"
+                  class="bg-base-100 border-base-content/15 absolute -top-1.5 left-[21px] h-3 w-3 -translate-x-1/2 rotate-45 border-t border-l max-md:left-[18px]"
                 />
-                <div class="w-24 shrink-0 self-center max-md:w-20">
-                  <MatrixModeSwitch
-                    :active="popoverMode.active"
-                    :switchable="popoverMode.switchable"
-                    @toggle="popoverRow && handlerModeToggle(popoverRow)"
-                  />
-                </div>
-                <div class="bg-base-content/10 w-px shrink-0 self-stretch" />
-                <div
-                  class="grid max-h-64 min-w-0 flex-1 auto-rows-max grid-cols-2 content-start gap-2 overflow-y-auto pr-0.5"
-                >
+                <!-- two faces of the drawer: the nodes behind the exit, or the domains
+                     the group's rules send through it -->
+                <div class="flex items-baseline gap-4 text-sm">
                   <button
-                    v-for="node in popoverNodes.list"
-                    :key="node.name"
+                    v-for="tab in DRAWER_TABS"
+                    :key="tab"
                     type="button"
-                    :disabled="!popoverNodes.selectable || !node.alive"
-                    :title="node.name"
                     :class="[
-                      'relative flex min-w-0 flex-col gap-1 overflow-hidden rounded-md border px-2 pt-1.5 pb-2 text-left',
-                      node.current ? 'border-primary' : 'border-base-content/10',
-                      popoverNodes.selectable && node.alive && !node.current
-                        ? 'hover:border-base-content/30 cursor-pointer'
-                        : 'cursor-default',
-                      !node.alive && 'opacity-40',
+                      'cursor-pointer transition-colors',
+                      drawerTab === tab
+                        ? 'text-base-content'
+                        : 'text-base-content/40 hover:text-base-content/70',
                     ]"
-                    @click="handlerNodeSelect(node.name)"
+                    @click="drawerTab = tab"
                   >
-                    <span
-                      :class="[
-                        'truncate pr-3 text-xs',
-                        node.current ? 'text-base-content' : 'text-base-content/70',
-                      ]"
-                      >{{ node.name }}</span
-                    >
-                    <!-- latency history, framed to its own min~max so the shape stays readable -->
-                    <svg
-                      :class="['h-5 w-full', node.color]"
-                      viewBox="0 0 100 20"
-                      preserveAspectRatio="none"
-                      aria-hidden="true"
-                    >
-                      <polyline
-                        v-if="node.spark"
-                        :points="node.spark"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="1.5"
-                        stroke-linejoin="round"
-                        vector-effect="non-scaling-stroke"
-                      />
-                    </svg>
-                    <span
-                      class="text-base-content/50 font-mono text-[10px] leading-none tabular-nums"
-                    >
-                      {{ node.alive ? node.metric || '—' : t('matrixUnavailable') }}
-                    </span>
-                    <!-- folded corner: the current node's is filled -->
-                    <span
-                      :class="[
-                        'absolute right-0 bottom-0 h-2.5 w-2.5 [clip-path:polygon(100%_0,100%_100%,0_100%)]',
-                        node.current ? 'bg-primary' : 'bg-base-content/20',
-                      ]"
-                    />
+                    {{ tab === 'nodes' ? t('nodeGroup') : t('domainPenetration') }}
                   </button>
+                </div>
+                <!-- switching faces slides the new one in from the side it lives on
+                     (domains to the right of nodes) while the box eases to its height -->
+                <div class="overflow-hidden transition-[height] duration-300 ease-out">
+                  <Transition
+                    mode="out-in"
+                    enter-active-class="transition duration-200 ease-out"
+                    leave-active-class="transition duration-150 ease-in"
+                    :enter-from-class="faceEnterFrom"
+                    :leave-to-class="faceLeaveTo"
+                    @before-leave="lockFaceHeight"
+                    @enter="growFaceHeight"
+                    @after-enter="releaseFaceHeight"
+                  >
+                    <div
+                      v-if="drawerTab === 'nodes'"
+                      key="nodes"
+                      class="flex gap-3"
+                    >
+                      <div class="w-24 shrink-0 self-center max-md:w-20">
+                        <MatrixModeSwitch
+                          :active="popoverMode.active"
+                          :switchable="popoverMode.switchable"
+                          @toggle="popoverRow && handlerModeToggle(popoverRow)"
+                        />
+                      </div>
+                      <div class="bg-base-content/10 w-px shrink-0 self-stretch" />
+                      <div
+                        class="grid max-h-64 min-w-0 flex-1 auto-rows-max grid-cols-2 content-start gap-2 overflow-y-auto pr-0.5"
+                      >
+                        <button
+                          v-for="node in popoverNodes.list"
+                          :key="node.name"
+                          type="button"
+                          :disabled="!popoverNodes.selectable || !node.alive"
+                          :title="node.name"
+                          :class="[
+                            'relative flex min-w-0 flex-col gap-1 overflow-hidden rounded-md border px-2 pt-1.5 pb-2 text-left',
+                            node.current ? 'border-primary' : 'border-base-content/10',
+                            popoverNodes.selectable && node.alive && !node.current
+                              ? 'hover:border-base-content/30 cursor-pointer'
+                              : 'cursor-default',
+                            !node.alive && 'opacity-40',
+                          ]"
+                          @click="handlerNodeSelect(node.name)"
+                        >
+                          <span
+                            :class="[
+                              'truncate pr-3 text-xs',
+                              node.current ? 'text-base-content' : 'text-base-content/70',
+                            ]"
+                            >{{ node.name }}</span
+                          >
+                          <!-- latency history, framed to its own min~max so the shape stays readable -->
+                          <svg
+                            :class="['h-5 w-full', node.color]"
+                            viewBox="0 0 100 20"
+                            preserveAspectRatio="none"
+                            aria-hidden="true"
+                          >
+                            <polyline
+                              v-if="node.spark"
+                              :points="node.spark"
+                              fill="none"
+                              stroke="currentColor"
+                              stroke-width="1.5"
+                              stroke-linejoin="round"
+                              vector-effect="non-scaling-stroke"
+                            />
+                          </svg>
+                          <span
+                            class="text-base-content/50 font-mono text-[10px] leading-none tabular-nums"
+                          >
+                            {{ node.alive ? node.metric || '—' : t('matrixUnavailable') }}
+                          </span>
+                          <!-- folded corner: the current node's is filled -->
+                          <span
+                            :class="[
+                              'absolute right-0 bottom-0 h-2.5 w-2.5 [clip-path:polygon(100%_0,100%_100%,0_100%)]',
+                              node.current ? 'bg-primary' : 'bg-base-content/20',
+                            ]"
+                          />
+                        </button>
+                      </div>
+                    </div>
+                    <MatrixDomainList
+                      v-else
+                      key="domains"
+                      :group-name="row.name"
+                    />
+                  </Transition>
                 </div>
               </div>
             </div>
@@ -289,10 +346,11 @@ import {
   proxyMap,
 } from '@/store/proxies'
 import { GlobeAltIcon } from '@heroicons/vue/24/outline'
-import { useElementSize, useEventListener, useStorage } from '@vueuse/core'
-import { computed, ref } from 'vue'
+import { useElementSize, useStorage } from '@vueuse/core'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import LatencyTag from './LatencyTag.vue'
+import MatrixDomainList from './MatrixDomainList.vue'
 import MatrixModeSwitch from './MatrixModeSwitch.vue'
 import ProxyIcon from './ProxyIcon.vue'
 import ProxyRegionGlyph from './ProxyRegionGlyph.vue'
@@ -324,10 +382,9 @@ const { t } = useI18n()
 
 // One column of business blocks on phones, two side by side on wider screens;
 // icons shrink on phones so a full row of exits still fits.
-const logoSize = computed(() => (isMiddleScreen.value ? 48 : 56))
-// Exits step down in size along the row, all standing on one baseline: the chosen
-// one large, the next medium, the rest small. Badges are drawn at the large size.
-const slotSizes = computed(() => (isMiddleScreen.value ? [40, 32, 24] : [44, 34, 26]))
+// Exits step down in size: the chosen one beside the node name, then along the row
+// large, medium and small for the rest, all standing on one baseline. Badges are drawn at the large size.
+const slotSizes = computed(() => (isMiddleScreen.value ? [36, 30, 26, 22] : [42, 36, 30, 24]))
 const badgeSize = computed(() => slotSizes.value[0])
 const exitSize = computed(() => Math.round(slotSizes.value[0] * 0.58))
 
@@ -452,7 +509,7 @@ const rows = computed<MatrixRow[]>(() => {
 // Rows keep the configured order: switching a row's exit must never move it.
 const orderedRows = rows
 
-// Each card: logo, the node in use and the route to it, live traffic on the right,
+// Each card: title over a faint logo backdrop, the node in use and its route, live traffic on the right,
 // one row of exits below. Cards need about 24rem; as many columns as fit.
 const CARD_MIN_WIDTH = 384
 const COLUMN_GAP = 24
@@ -502,6 +559,101 @@ const trafficLines = (name: string) => [
   },
 ]
 
+// Where the frosted glass over the backdrop starts: 36px above the bottom of
+// the card's three rows (title, chosen exit, other exits), so its 48px fade-in is
+// complete just where an open drawer would begin.
+const frostTop = computed(() => 14 + 28 + 10 + slotSizes.value[0] + 10 + slotSizes.value[1] - 36)
+
+// Backdrop logos: each icon's drawn area is measured once (alpha bounding box,
+// as fractions of the image), so every logo's shape gets the same size and centre
+// regardless of the padding inside its image.
+type InkBox = { x: number; y: number; w: number; h: number }
+
+const SVG_TEXT_PREFIX = 'data:image/svg+xml,'
+const inkBoxes = ref<Record<string, InkBox>>({})
+const inkPending = new Set<string>()
+
+const backdropSrc = (icon: string) =>
+  icon.startsWith(SVG_TEXT_PREFIX)
+    ? SVG_TEXT_PREFIX + encodeURIComponent(icon.slice(SVG_TEXT_PREFIX.length))
+    : icon
+
+const measureInk = (icon: string) => {
+  if (inkPending.has(icon)) return
+  inkPending.add(icon)
+
+  const image = new Image()
+
+  image.onload = () => {
+    const size = 128
+    const canvas = document.createElement('canvas')
+
+    canvas.width = size
+    canvas.height = size
+
+    const context = canvas.getContext('2d')
+
+    if (!context) return
+    context.drawImage(image, 0, 0, size, size)
+
+    const { data } = context.getImageData(0, 0, size, size)
+    let minX = size
+    let minY = size
+    let maxX = -1
+    let maxY = -1
+
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        if (data[(y * size + x) * 4 + 3] > 16) {
+          minX = Math.min(minX, x)
+          maxX = Math.max(maxX, x)
+          minY = Math.min(minY, y)
+          maxY = Math.max(maxY, y)
+        }
+      }
+    }
+
+    if (maxX < 0) return
+    inkBoxes.value = {
+      ...inkBoxes.value,
+      [icon]: {
+        x: minX / size,
+        y: minY / size,
+        w: (maxX - minX + 1) / size,
+        h: (maxY - minY + 1) / size,
+      },
+    }
+  }
+  image.src = backdropSrc(icon)
+}
+
+const backdropStyle = (icon: string) => {
+  const mobile = isMiddleScreen.value
+  // the shape's longer side, and where its centre sits: in the open space between
+  // the routing block and the right-hand column
+  const shape = mobile ? 120 : 180
+  const centreX = mobile ? 56 : 64
+  const centreY = mobile ? 104 : 124
+  const ink = inkBoxes.value[icon]
+
+  if (!ink) {
+    measureInk(icon)
+  }
+
+  const box = ink ?? { x: 0, y: 0, w: 1, h: 1 }
+  const image = shape / Math.max(box.w, box.h)
+
+  return {
+    width: `${image}px`,
+    height: `${image}px`,
+    left: `calc(${centreX}% - ${(box.x + box.w / 2) * image}px)`,
+    top: `${centreY - (box.y + box.h / 2) * image}px`,
+    // tilted 30° anticlockwise about the shape's own centre
+    transform: 'rotate(-30deg)',
+    transformOrigin: `${(box.x + box.w / 2) * 100}% ${(box.y + box.h / 2) * 100}%`,
+  }
+}
+
 // Live traffic per proxy or group name: the speeds of the open connections whose
 // chain passes through it. Cards show it for the node they currently end at.
 const traffic = computed(() => {
@@ -541,16 +693,22 @@ const columns = computed(() => {
   return result
 })
 
-// The keypad only lists real exits; direct / reject are picked on the logo.
+// The keypad only lists real exits; direct / reject have their own mark.
 const exitColumns = computed(() => columns.value.filter((column) => !verdictOf(column)))
 
 // A row's exits as shown: the chosen one first, the rest in the global order.
+// A row on direct / reject leads instead with the exit it would go back to, shown
+// faded in the chosen slot, so the bottom row never grows.
 const exitOrder = (row: MatrixRow) => {
-  const rest = exitColumns.value.filter(
-    (column) => column !== row.now && row.options.includes(column),
-  )
+  const own = exitColumns.value.filter((column) => row.options.includes(column))
+  const previous = lastExits.value[row.name]
+  const lead = own.includes(row.now)
+    ? row.now
+    : previous && own.includes(previous)
+      ? previous
+      : own[0]
 
-  return exitColumns.value.includes(row.now) ? [row.now, ...rest] : rest
+  return lead ? [lead, ...own.filter((column) => column !== lead)] : own
 }
 
 // Exit groups without a configured icon fall back to a flag: first by the
@@ -647,22 +805,45 @@ const columnFlags = computed(() => {
   return result
 })
 
-// Unselected exits fade with their distance from the selected one, so the eye
-// lands on the choice first and reads its neighbours as weaker alternatives.
-const FADE_NEAREST = 0.6
-const FADE_STEP = 0.06
-const FADE_MIN = 0.22
+// Unselected exits keep their colours but dim with their distance from the chosen
+// one, so the eye lands on the choice first and reads the rest as weaker options.
+// Brightness rather than opacity, so the backdrop never shows through them.
+const FADE_NEAREST = 0.7
+const FADE_STEP = 0.07
+const FADE_MIN = 0.4
 
-// Position counted from the chosen exit; rows on direct / reject have none in front.
+// Position counted from the lead exit (the chosen one, or the one to go back to).
 const rankOf = (row: MatrixRow, column: string) => {
-  const order = exitOrder(row)
-  const index = order.indexOf(column)
-
-  return order[0] === row.now ? index : index + 1
+  return exitOrder(row).indexOf(column)
 }
 
 const slotOf = (row: MatrixRow, column: string) =>
   slotSizes.value[Math.min(rankOf(row, column), slotSizes.value.length - 1)]
+
+// Where each exit sits inside the card body, flush left. Matches the template:
+// the title row, the chosen exit's row, then the row of other exits, 10px apart.
+const exitStyle = (row: MatrixRow, column: string) => {
+  const mobile = isMiddleScreen.value
+  const titleRow = 28
+  const gap = mobile ? 4 : 6
+  const rowGap = 10
+  const x0 = 0
+  const chosenTop = titleRow + rowGap
+  const baseline = chosenTop + slotSizes.value[0] + rowGap + slotSizes.value[1]
+  const rank = rankOf(row, column)
+  const size = slotOf(row, column)
+  let left = x0
+  let top = chosenTop
+
+  if (rank > 0) {
+    for (let k = 1; k < rank; k++) {
+      left += slotSizes.value[Math.min(k, slotSizes.value.length - 1)] + gap
+    }
+    top = baseline - size
+  }
+
+  return { left: `${left}px`, top: `${top}px`, width: `${size}px`, height: `${size}px` }
+}
 
 const fadeOf = (row: MatrixRow, column: string) => {
   const distance = rankOf(row, column)
@@ -670,8 +851,51 @@ const fadeOf = (row: MatrixRow, column: string) => {
   return String(Math.max(FADE_MIN, FADE_NEAREST - FADE_STEP * (distance - 1)))
 }
 
-// The card whose drill-down panel is open.
+// The card whose drill-down panel is open, and which face of it is showing.
 const expandedRow = ref('')
+const DRAWER_TABS = ['nodes', 'domains'] as const
+const drawerTab = ref<(typeof DRAWER_TABS)[number]>('nodes')
+
+watch(expandedRow, () => {
+  drawerTab.value = 'nodes'
+})
+
+// Domains sit to the right of nodes: going there slides in from the right and
+// out to the left, coming back the other way round.
+const faceEnterFrom = computed(() =>
+  drawerTab.value === 'domains' ? 'opacity-0 translate-x-6' : 'opacity-0 -translate-x-6',
+)
+const faceLeaveTo = computed(() =>
+  drawerTab.value === 'domains' ? 'opacity-0 -translate-x-6' : 'opacity-0 translate-x-6',
+)
+
+// The box holding the faces keeps the old height until the new face is in, then
+// eases to the new one, so the card below never jumps.
+const lockFaceHeight = (el: Element) => {
+  const box = el.parentElement
+
+  if (box) box.style.height = `${box.offsetHeight}px`
+}
+
+const growFaceHeight = (el: Element) => {
+  const box = el.parentElement
+
+  if (box) {
+    requestAnimationFrame(() => {
+      box.style.height = `${(el as HTMLElement).offsetHeight}px`
+    })
+  }
+}
+
+const releaseFaceHeight = (el: Element) => {
+  const box = el.parentElement
+
+  if (box) {
+    window.setTimeout(() => {
+      box.style.height = ''
+    }, 300)
+  }
+}
 
 const popoverRow = computed(() => rows.value.find((row) => row.name === expandedRow.value))
 
@@ -808,19 +1032,7 @@ const handlerCellClick = async (row: MatrixRow, column: string) => {
 
 // Leaving a verdict returns the row to the exit it used before, or its first exit.
 const lastExits = useStorage<Record<string, string>>('config/matrix-last-exits', {})
-const openLogo = ref('')
-
-// a tap anywhere else puts an opened logo cover away again
-useEventListener(document, 'click', () => {
-  openLogo.value = ''
-})
-
-const toggleLogo = (row: MatrixRow) => {
-  openLogo.value = openLogo.value === row.name ? '' : row.name
-}
-
 const handlerVerdict = async (row: MatrixRow, kind: Verdict) => {
-  openLogo.value = ''
   closePopover()
 
   if (row.verdict === kind) {
@@ -896,9 +1108,3 @@ const handlerNodeSelect = async (node: string) => {
 const escapeHtml = (value: string) =>
   value.replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`)
 </script>
-
-<style scoped>
-.exit-move {
-  transition: transform 0.36s cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-</style>

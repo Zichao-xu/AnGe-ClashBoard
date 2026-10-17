@@ -780,7 +780,7 @@ export default defineComponent({
         return {
           type,
           count:
-            type === PROXY_TAB_TYPE.POLICY || type === PROXY_TAB_TYPE.MATRIX
+            type === PROXY_TAB_TYPE.POLICY
               ? policyGroups.value.length
               : type === PROXY_TAB_TYPE.DOMAIN
                 ? domainGroups.value.length

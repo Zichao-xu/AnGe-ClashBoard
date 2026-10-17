@@ -63,7 +63,6 @@ const zh: LANG_MESSAGE = {
   defaultTheme: '默认主题',
   darkTheme: '深色主题',
   policyGroup: '策略',
-  matrixGroup: '矩阵',
   matrixAuto: '速率',
   matrixManual: '手动',
   matrixPickNode: '选择节点',

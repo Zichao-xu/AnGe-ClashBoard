@@ -42,6 +42,12 @@ export const proxiesTabShow = useStorage<PROXY_TAB_TYPE>(
   PROXY_TAB_TYPE.POLICY,
 )
 
+// A tab remembered from an older build (the separate matrix tab, now the policy
+// tab itself) falls back to the policy tab.
+if (!Object.values(PROXY_TAB_TYPE).includes(proxiesTabShow.value)) {
+  proxiesTabShow.value = PROXY_TAB_TYPE.POLICY
+}
+
 export const proxyGroupList = ref<string[]>([])
 export const proxyMap = ref<Record<string, Proxy>>({})
 export const IPv6Map = useStorage<Record<string, boolean>>('config/ipv6-map', {})

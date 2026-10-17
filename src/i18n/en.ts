@@ -61,7 +61,6 @@ const en = {
   defaultTheme: 'Default theme',
   darkTheme: 'Dark theme',
   policyGroup: 'Policy group',
-  matrixGroup: 'Matrix',
   matrixAuto: 'Auto',
   matrixManual: 'Manual',
   matrixPickNode: 'Pick a node',

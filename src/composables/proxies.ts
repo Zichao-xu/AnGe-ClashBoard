@@ -37,10 +37,7 @@ const getRenderGroups = () => {
     return currentGroups.filter((name) => !isPolicyGroup(name))
   }
 
-  if (
-    proxiesTabShow.value === PROXY_TAB_TYPE.DOMAIN ||
-    proxiesTabShow.value === PROXY_TAB_TYPE.MATRIX
-  ) {
+  if (proxiesTabShow.value === PROXY_TAB_TYPE.DOMAIN) {
     return []
   }
 
