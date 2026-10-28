@@ -189,6 +189,23 @@
         </g>
       </g>
 
+      <!-- Every node: ALL in dark rounded strokes on teal -->
+      <g v-else-if="glyph === 'all'">
+        <rect
+          width="24"
+          height="24"
+          fill="#5ec8a6"
+        />
+        <path
+          d="M4.4 15.6L7.2 8.4L10 15.6M5.5 13H8.9M12 8.4V15.6H15M16.6 8.4V15.6H19.6"
+          fill="none"
+          stroke="#16202a"
+          stroke-width="1.7"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </g>
+
       <!-- Dedicated line: route between two endpoints on navy -->
       <g v-else-if="glyph === 'line'">
         <rect

@@ -29,7 +29,7 @@
                centred the same way on every card -->
           <div
             v-if="proxyMap[row.name]?.icon"
-            class="pointer-events-none absolute inset-0 -z-10 opacity-25"
+            class="pointer-events-none absolute inset-0 -z-10 saturate-[.75]"
             aria-hidden="true"
           >
             <img
@@ -135,40 +135,46 @@
               type="button"
               :class="[
                 'group/cell absolute flex cursor-pointer items-center justify-center rounded-full transition-[left,top,width,height,box-shadow] duration-300 ease-out',
-                row.now === column && 'ring-primary ring-offset-base-100 ring-2 ring-offset-2',
+                row.nowExit === column && 'ring-primary ring-offset-base-100 ring-2 ring-offset-2',
               ]"
               :style="exitStyle(row, column)"
               :aria-label="`${row.name} → ${column}`"
-              :aria-pressed="row.now === column"
-              :aria-expanded="row.now === column ? expandedRow === row.name : undefined"
+              :aria-pressed="row.nowExit === column"
+              :aria-expanded="row.nowExit === column ? expandedRow === row.name : undefined"
               @click.stop="handlerCellClick(row, column)"
             >
               <!-- drawn at the large size and scaled down, so a size change animates -->
               <span
                 :class="[
                   'absolute flex items-center justify-center transition-[opacity,filter,scale] duration-300',
-                  row.now === column
+                  row.nowExit === column
                     ? 'opacity-100'
-                    : 'brightness-(--fade) group-hover/cell:brightness-100',
+                    : 'brightness-(--fade) saturate-(--sat) group-hover/cell:brightness-100 group-hover/cell:saturate-100',
                 ]"
                 :style="{
                   '--fade': fadeOf(row, column),
+                  '--sat': saturationOf(row, column),
                   width: `${slotSizes[0]}px`,
                   height: `${slotSizes[0]}px`,
                   scale: slotOf(row, column) / slotSizes[0],
                 }"
-                :title="column"
+                :title="exitTitle(column)"
               >
-                <ProxyRegionGlyph
-                  v-if="columnGlyphs[column]"
-                  :glyph="columnGlyphs[column]"
+                <VerdictBadge
+                  v-if="verdictOf(column)"
+                  :kind="verdictOf(column)!"
                   :size="badgeSize"
                 />
                 <ProxyIcon
                   v-else-if="proxyMap[column]?.icon"
                   :icon="proxyMap[column].icon"
-                  :size="exitSize"
+                  :size="badgeSize"
                   :margin="0"
+                />
+                <ProxyRegionGlyph
+                  v-else-if="columnGlyphs[column]"
+                  :glyph="columnGlyphs[column]"
+                  :size="badgeSize"
                 />
                 <span
                   v-else-if="columnFlags[column] && columnFlags[column] !== MIXED"
@@ -261,12 +267,12 @@
                           v-for="node in popoverNodes.list"
                           :key="node.name"
                           type="button"
-                          :disabled="!popoverNodes.selectable || !node.alive"
+                          :disabled="!popoverNodes.selectable"
                           :title="node.name"
                           :class="[
                             'relative flex min-w-0 flex-col gap-1 overflow-hidden rounded-md border px-2 pt-1.5 pb-2 text-left',
                             node.current ? 'border-primary' : 'border-base-content/10',
-                            popoverNodes.selectable && node.alive && !node.current
+                            popoverNodes.selectable && !node.current
                               ? 'hover:border-base-content/30 cursor-pointer'
                               : 'cursor-default',
                             !node.alive && 'opacity-40',
@@ -354,18 +360,26 @@ import MatrixDomainList from './MatrixDomainList.vue'
 import MatrixModeSwitch from './MatrixModeSwitch.vue'
 import ProxyIcon from './ProxyIcon.vue'
 import ProxyRegionGlyph from './ProxyRegionGlyph.vue'
+import VerdictBadge from './VerdictBadge.vue'
 import VerdictGlyph from './VerdictGlyph.vue'
 
 type ModePair = {
   auto: string
   manual: string
   isAuto: boolean
+  // the service lists both halves itself, so switching touches only this service;
+  // otherwise the halves sit under a shared exit group and the switch is shared too
+  flat: boolean
 }
 
 type MatrixRow = {
   name: string
   now: string
   options: string[]
+  // the options as exits: both halves of an auto / manual pair become one exit,
+  // named by its automatic half
+  exits: string[]
+  nowExit: string
   isDirect: boolean
   leaf: string
   leafGroup: string
@@ -386,7 +400,6 @@ const { t } = useI18n()
 // large, medium and small for the rest, all standing on one baseline. Badges are drawn at the large size.
 const slotSizes = computed(() => (isMiddleScreen.value ? [36, 30, 26, 22] : [42, 36, 30, 24]))
 const badgeSize = computed(() => slotSizes.value[0])
-const exitSize = computed(() => Math.round(slotSizes.value[0] * 0.58))
 
 const AUTO_GROUP_TYPES = new Set<string>([
   PROXY_TYPE.URLTest,
@@ -443,7 +456,68 @@ const getModePair = (exit: string): ModePair | null => {
     return null
   }
 
-  return { auto, manual, isAuto: group.now === auto }
+  return { auto, manual, isAuto: group.now === auto, flat: false }
+}
+
+const sameMembers = (a: string, b: string) => {
+  const left = proxyMap.value[a]?.all ?? []
+  const right = new Set(proxyMap.value[b]?.all ?? [])
+
+  return left.length > 0 && left.length === right.size && left.every((name) => right.has(name))
+}
+
+// A service may list an exit's two halves itself, e.g. 流媒体 → [日本-速率, 日本-手动]:
+// an automatic group and a selector over the same nodes. Each such option maps to its pair.
+const flatPairs = computed(() => {
+  const result: Record<string, { auto: string; manual: string }> = {}
+
+  policyGroups.value.forEach((groupName) => {
+    const options = proxyMap.value[groupName]?.all ?? []
+    const manuals = options.filter((name) => typeOf(name) === PROXY_TYPE.Selector)
+
+    options
+      .filter((name) => AUTO_GROUP_TYPES.has(typeOf(name)) && !result[name])
+      .forEach((auto) => {
+        const manual = manuals.find((name) => !result[name] && sameMembers(auto, name))
+
+        if (manual) {
+          result[auto] = result[manual] = { auto, manual }
+        }
+      })
+  })
+
+  return result
+})
+
+const exitOf = (option: string) => flatPairs.value[option]?.auto ?? option
+
+const getRowMode = (groupName: string, now: string): ModePair | null => {
+  const pair = flatPairs.value[now]
+  const own = proxyMap.value[groupName]?.all ?? []
+
+  if (pair && own.includes(pair.auto) && own.includes(pair.manual)) {
+    return { ...pair, isAuto: now === pair.auto, flat: true }
+  }
+
+  return getModePair(now)
+}
+
+// The option behind an exit for this row: a paired exit keeps the row's current
+// mode, so moving from 日本-手动 to 香港 lands on 香港-手动.
+const optionOf = (row: MatrixRow, exit: string) => {
+  const pair = flatPairs.value[exit]
+
+  if (!pair || !row.options.includes(pair.manual)) {
+    return exit
+  }
+
+  return row.mode?.flat && !row.mode.isAuto ? pair.manual : pair.auto
+}
+
+const exitTitle = (exit: string) => {
+  const pair = flatPairs.value[exit]
+
+  return pair ? `${pair.auto} / ${pair.manual}` : exit
 }
 
 // Throughput results: per-group `speeds` (bytes/s) from the url-test throughput
@@ -488,17 +562,21 @@ const rows = computed<MatrixRow[]>(() => {
       const speedText = speed ? formatSpeed(speed) : ''
       const latencyText = latency > NOT_CONNECTED ? `${latency}ms` : ''
 
+      const options = group.all ?? []
+
       return {
         name,
         now: group.now,
-        options: group.all ?? [],
+        options,
+        exits: [...new Set(options.map(exitOf))],
+        nowExit: exitOf(group.now),
         isDirect,
         leaf,
         leafGroup,
         via: chain.filter((hop) => hop !== name && hop !== leaf),
         terminals: getTerminals(group.all ?? []),
         verdict: verdictOf(group.now),
-        mode: getModePair(group.now),
+        mode: getRowMode(name, group.now),
         speedText,
         latencyText,
         latencyClass: getColorForLatency(latency),
@@ -567,7 +645,9 @@ const frostTop = computed(() => 14 + 28 + 10 + slotSizes.value[0] + 10 + slotSiz
 // Backdrop logos: each icon's drawn area is measured once (alpha bounding box,
 // as fractions of the image), so every logo's shape gets the same size and centre
 // regardless of the padding inside its image.
-type InkBox = { x: number; y: number; w: number; h: number }
+// salience: how loudly the drawn shape reads on the dark card once normalised in
+// size: its filled share times its contrast with the background plus its colour.
+type InkBox = { x: number; y: number; w: number; h: number; salience: number }
 
 const SVG_TEXT_PREFIX = 'data:image/svg+xml,'
 const inkBoxes = ref<Record<string, InkBox>>({})
@@ -614,13 +694,43 @@ const measureInk = (icon: string) => {
     }
 
     if (maxX < 0) return
+
+    const boxW = maxX - minX + 1
+    const boxH = maxY - minY + 1
+    const side = Math.max(boxW, boxH)
+    const BACKGROUND_LUMA = 0.13
+    let weight = 0
+    let contrast = 0
+    let chroma = 0
+
+    for (let y = minY; y <= maxY; y++) {
+      for (let x = minX; x <= maxX; x++) {
+        const i = (y * size + x) * 4
+        const a = data[i + 3] / 255
+
+        if (a === 0) continue
+
+        const r = data[i] / 255
+        const g = data[i + 1] / 255
+        const b = data[i + 2] / 255
+
+        weight += a
+        contrast += a * Math.abs(0.2126 * r + 0.7152 * g + 0.0722 * b - BACKGROUND_LUMA)
+        chroma += a * (Math.max(r, g, b) - Math.min(r, g, b))
+      }
+    }
+
+    const filled = weight / (side * side)
+    const salience = weight ? filled * (contrast / weight + 1.2 * (chroma / weight)) : 0
+
     inkBoxes.value = {
       ...inkBoxes.value,
       [icon]: {
         x: minX / size,
         y: minY / size,
-        w: (maxX - minX + 1) / size,
-        h: (maxY - minY + 1) / size,
+        w: boxW / size,
+        h: boxH / size,
+        salience,
       },
     }
   }
@@ -640,7 +750,7 @@ const backdropStyle = (icon: string) => {
     measureInk(icon)
   }
 
-  const box = ink ?? { x: 0, y: 0, w: 1, h: 1 }
+  const box = ink ?? { x: 0, y: 0, w: 1, h: 1, salience: 0 }
   const image = shape / Math.max(box.w, box.h)
 
   return {
@@ -648,6 +758,12 @@ const backdropStyle = (icon: string) => {
     height: `${image}px`,
     left: `calc(${centreX}% - ${(box.x + box.w / 2) * image}px)`,
     top: `${centreY - (box.y + box.h / 2) * image}px`,
+    // every logo carries the same visual weight: quiet ones (thin, grey) show
+    // stronger, loud ones (large, saturated) fainter; the square root keeps the
+    // correction from overshooting
+    opacity: ink
+      ? Math.min(0.32, Math.max(0.1, 0.2 * Math.sqrt(0.44 / Math.max(ink.salience, 0.01))))
+      : 0,
     // tilted 30° anticlockwise about the shape's own centre
     transform: 'rotate(-30deg)',
     transformOrigin: `${(box.x + box.w / 2) * 100}% ${(box.y + box.h / 2) * 100}%`,
@@ -677,15 +793,13 @@ const columns = computed(() => {
 
   // Every exit any row can pick, in one shared order that lays out every row's
   // slots and resolves each exit's icon once.
-  const byOptionCount = [...rows.value].sort(
-    (a, b) => (proxyMap.value[b.name].all?.length ?? 0) - (proxyMap.value[a.name].all?.length ?? 0),
-  )
+  const byOptionCount = [...rows.value].sort((a, b) => b.exits.length - a.exits.length)
 
   byOptionCount.forEach((row) => {
-    proxyMap.value[row.name].all?.forEach((option) => {
-      if (!seen.has(option)) {
-        seen.add(option)
-        result.push(option)
+    row.exits.forEach((exit) => {
+      if (!seen.has(exit)) {
+        seen.add(exit)
+        result.push(exit)
       }
     })
   })
@@ -697,16 +811,20 @@ const columns = computed(() => {
 const exitColumns = computed(() => columns.value.filter((column) => !verdictOf(column)))
 
 // A row's exits as shown: the chosen one first, the rest in the global order.
-// A row on direct / reject leads instead with the exit it would go back to, shown
-// faded in the chosen slot, so the bottom row never grows.
+// A row on direct / reject leads with that verdict's badge, and the exit it would
+// go back to opens the row below.
 const exitOrder = (row: MatrixRow) => {
-  const own = exitColumns.value.filter((column) => row.options.includes(column))
-  const previous = lastExits.value[row.name]
-  const lead = own.includes(row.now)
-    ? row.now
-    : previous && own.includes(previous)
-      ? previous
-      : own[0]
+  const own = exitColumns.value.filter((column) => row.exits.includes(column))
+
+  if (row.verdict) {
+    const previous = lastExits.value[row.name] && exitOf(lastExits.value[row.name])
+    const back = previous && own.includes(previous) ? previous : own[0]
+    const rest = back ? [back, ...own.filter((column) => column !== back)] : own
+
+    return [row.nowExit, ...rest]
+  }
+
+  const lead = own.includes(row.nowExit) ? row.nowExit : own[0]
 
   return lead ? [lead, ...own.filter((column) => column !== lead)] : own
 }
@@ -740,6 +858,8 @@ const FLAG_GLYPHS: Record<string, string> = {
   '🇺🇸': 'us',
 }
 const DEDICATED_LINE = /专线|專線|IPLC|IEPL|dedicated/i
+// A globe reads as "abroad", not "every node": groups over all nodes say ALL.
+const EVERY_NODE = /^(所有|全部)|\bALL\b/i
 
 const columnGlyphs = computed(() => {
   const result: Record<string, string> = {}
@@ -755,7 +875,7 @@ const columnGlyphs = computed(() => {
     } else if (DEDICATED_LINE.test(column)) {
       result[column] = 'line'
     } else if (flag === MIXED) {
-      result[column] = 'globe'
+      result[column] = EVERY_NODE.test(column) ? 'all' : 'globe'
     } else if (flag && FLAG_GLYPHS[flag]) {
       result[column] = FLAG_GLYPHS[flag]
     }
@@ -805,12 +925,17 @@ const columnFlags = computed(() => {
   return result
 })
 
-// Unselected exits keep their colours but dim with their distance from the chosen
+// Unselected exits keep a tint of their colours but dim with their distance from the chosen
 // one, so the eye lands on the choice first and reads the rest as weaker options.
 // Brightness rather than opacity, so the backdrop never shows through them.
 const FADE_NEAREST = 0.7
 const FADE_STEP = 0.07
 const FADE_MIN = 0.4
+// Brightness alone cannot tame a saturated badge (a red one still jumps out), so
+// colour drains with distance too, leaving only a tint on the far ones.
+const SATURATION_NEAREST = 0.65
+const SATURATION_STEP = 0.1
+const SATURATION_MIN = 0.25
 
 // Position counted from the lead exit (the chosen one, or the one to go back to).
 const rankOf = (row: MatrixRow, column: string) => {
@@ -843,6 +968,12 @@ const exitStyle = (row: MatrixRow, column: string) => {
   }
 
   return { left: `${left}px`, top: `${top}px`, width: `${size}px`, height: `${size}px` }
+}
+
+const saturationOf = (row: MatrixRow, column: string) => {
+  const distance = rankOf(row, column)
+
+  return String(Math.max(SATURATION_MIN, SATURATION_NEAREST - SATURATION_STEP * (distance - 1)))
 }
 
 const fadeOf = (row: MatrixRow, column: string) => {
@@ -1021,13 +1152,19 @@ const toggleExpand = (row: MatrixRow) => {
 
 // The chosen exit toggles the drill-down; any other exit is picked.
 const handlerCellClick = async (row: MatrixRow, column: string) => {
-  if (row.now === column) {
+  // the lit verdict badge goes back, like its half of the verdict mark
+  if (row.verdict && row.nowExit === column) {
+    await handlerVerdict(row, row.verdict)
+    return
+  }
+
+  if (row.nowExit === column) {
     toggleExpand(row)
     return
   }
 
   closePopover()
-  await handlerProxySelect(row.name, column)
+  await handlerProxySelect(row.name, optionOf(row, column))
 }
 
 // Leaving a verdict returns the row to the exit it used before, or its first exit.
@@ -1077,6 +1214,13 @@ const handlerModeToggle = async (row: MatrixRow) => {
   }
 
   const target = mode.isAuto ? mode.manual : mode.auto
+
+  // the service picks the other half itself: no other service follows
+  if (mode.flat) {
+    await handlerProxySelect(row.name, target)
+    return
+  }
+
   const linked = rows.value
     .filter((other) => other.name !== row.name && other.now === row.now)
     .map((other) => other.name)

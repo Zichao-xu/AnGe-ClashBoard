@@ -2,7 +2,8 @@
   <!-- Direct and reject as two halves of one mark split by a diagonal: a two-way
        arrow (one long diagonal, a short barb at each end) above, the same arrow
        struck through below. Each half is its own hit area and always wears its
-       colour; the active half glows. -->
+       colour, but faintly: the mark is on every card, so it stays in the background
+       until a half is active, which then glows. -->
   <svg
     viewBox="0 0 24 24"
     fill="none"
@@ -30,7 +31,7 @@
           ? 'pointer-events-none opacity-15'
           : active === half.kind
             ? 'verdict-glow'
-            : 'opacity-60 hover:opacity-100',
+            : 'opacity-35 hover:opacity-100',
       ]"
       @click.stop="emit('pick', half.kind)"
     >
